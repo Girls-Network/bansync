@@ -36,16 +36,28 @@ interface BanResult {
 // Load server configuration
 let serversConfig: ServersConfig;
 try {
-  const configPath = join(process.cwd(), 'servers.json');
-  const configFile = readFileSync(configPath, 'utf-8');
+  // Try root directory first, then src directory
+  let configPath = join(process.cwd(), 'servers.json');
+  let configFile: string;
+  
+  try {
+    configFile = readFileSync(configPath, 'utf-8');
+  } catch {
+    // If not found in root, try src directory
+    configPath = join(process.cwd(), 'src', 'servers.json');
+    configFile = readFileSync(configPath, 'utf-8');
+  }
+  
   serversConfig = JSON.parse(configFile);
   
   if (!serversConfig.servers || !Array.isArray(serversConfig.servers)) {
     throw new Error('Invalid servers.json format');
   }
+  
+  console.log(`✅ Loaded configuration from: ${configPath}`);
 } catch (error) {
   console.error('❌ Error loading servers.json:', error);
-  console.error('Please ensure servers.json exists and is properly formatted.');
+  console.error('Please ensure servers.json exists in either the root directory or src/ directory and is properly formatted.');
   process.exit(1);
 }
 
