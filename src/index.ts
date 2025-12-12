@@ -44,6 +44,14 @@ interface BanResult {
   error?: string;
 }
 
+interface UnbanResult {
+  serverId: string;
+  serverName: string;
+  success: boolean;
+  wasNotBanned: boolean;
+  error?: string;
+}
+
 interface SyncStats {
   totalBans: number;
   newBans: number;
@@ -90,6 +98,19 @@ const commands = [
   new SlashCommandBuilder()
     .setName('sync')
     .setDescription('Sync all bans across configured servers')
+    .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
+    .setDMPermission(false),
+  new SlashCommandBuilder()
+    .setName('unban')
+    .setDescription('Unban a user from all configured servers')
+    .addStringOption(option =>
+      option.setName('user_id')
+        .setDescription('The ID of the user to unban')
+        .setRequired(true))
+    .addStringOption(option =>
+      option.setName('reason')
+        .setDescription('Reason for unbanning')
+        .setRequired(false))
     .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
     .setDMPermission(false),
 ].map(command => command.toJSON());
@@ -140,8 +161,144 @@ client.on('interactionCreate', async (interaction) => {
   
   if (interaction.commandName === 'sync') {
     await handleSyncCommand(interaction);
+  } else if (interaction.commandName === 'unban') {
+    await handleUnbanCommand(interaction);
   }
 });
+
+async function handleUnbanCommand(interaction: ChatInputCommandInteraction) {
+  // Check if user has ban permissions
+  if (!interaction.memberPermissions?.has(PermissionFlagsBits.BanMembers)) {
+    await interaction.reply({
+      content: '❌ You need Ban Members permission to use this command.',
+      ephemeral: true,
+    });
+    return;
+  }
+  
+  const userId = interaction.options.getString('user_id', true);
+  const reason = interaction.options.getString('reason') || 'No reason provided';
+  
+  // Validate user ID format
+  if (!/^\d{17,19}$/.test(userId)) {
+    await interaction.reply({
+      content: '❌ Invalid user ID format. Please provide a valid Discord user ID.',
+      ephemeral: true,
+    });
+    return;
+  }
+  
+  await interaction.deferReply();
+  
+  try {
+    console.log(`\n🔓 Unban initiated by ${interaction.user.tag} in ${interaction.guild?.name}`);
+    console.log(`   User ID: ${userId}`);
+    console.log(`   Reason: ${reason}`);
+    
+    const results: UnbanResult[] = [];
+    
+    // Try to unban from all servers
+    for (const configServer of serversConfig.servers) {
+      const guild = client.guilds.cache.get(configServer.id);
+      
+      if (!guild) {
+        results.push({
+          serverId: configServer.id,
+          serverName: configServer.name,
+          success: false,
+          wasNotBanned: false,
+          error: 'Bot not in server',
+        });
+        continue;
+      }
+      
+      try {
+        // Check if user is actually banned
+        const existingBan = await guild.bans.fetch(userId).catch(() => null);
+        
+        if (!existingBan) {
+          results.push({
+            serverId: configServer.id,
+            serverName: configServer.name,
+            success: true,
+            wasNotBanned: true,
+          });
+          continue;
+        }
+        
+        // Unban the user
+        await guild.members.unban(userId, `[BanSync Unban] ${reason} | Requested by ${interaction.user.tag}`);
+        
+        results.push({
+          serverId: configServer.id,
+          serverName: configServer.name,
+          success: true,
+          wasNotBanned: false,
+        });
+        
+        console.log(`  ✅ Unbanned from ${configServer.name}`);
+        
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        results.push({
+          serverId: configServer.id,
+          serverName: configServer.name,
+          success: false,
+          wasNotBanned: false,
+          error: errorMessage,
+        });
+        console.log(`  ❌ Failed to unban from ${configServer.name}: ${errorMessage}`);
+      }
+    }
+    
+    // Calculate stats
+    const unbannedCount = results.filter(r => r.success && !r.wasNotBanned).length;
+    const notBannedCount = results.filter(r => r.wasNotBanned).length;
+    const errorCount = results.filter(r => !r.success).length;
+    
+    // Format results for embed
+    const resultText = results
+      .map(r => {
+        const emoji = r.success ? '✔️' : '❌';
+        const status = r.wasNotBanned ? ' (not banned)' : r.error ? ` (${r.error})` : '';
+        return `${r.serverName}: ${emoji}${status}`;
+      })
+      .join('\n');
+    
+    // Create summary embed
+    const embed = new EmbedBuilder()
+      .setTitle('🔓 Unban Complete')
+      .setDescription(`Processed unban for user ID \`${userId}\` across ${serversConfig.servers.length} servers.`)
+      .addFields(
+        { name: 'User ID', value: `<@${userId}> (\`${userId}\`)`, inline: false },
+        { name: 'Reason', value: reason, inline: false },
+        { name: 'Results', value: resultText || 'None', inline: false },
+        {
+          name: 'Summary',
+          value: `✅ Unbanned: ${unbannedCount}\n⚠️ Not banned: ${notBannedCount}\n❌ Errors: ${errorCount}`,
+          inline: false,
+        }
+      )
+      .setColor(errorCount > 0 ? Colors.Orange : Colors.Green)
+      .setTimestamp()
+      .setFooter({ text: `Requested by ${interaction.user.tag}` });
+    
+    await interaction.editReply({
+      embeds: [embed],
+    });
+    
+    console.log(`\n✅ Unban complete:`);
+    console.log(`   Unbanned: ${unbannedCount}`);
+    console.log(`   Not banned: ${notBannedCount}`);
+    console.log(`   Errors: ${errorCount}`);
+    
+  } catch (error) {
+    console.error('❌ Error during unban:', error);
+    await interaction.editReply({
+      content: '❌ An error occurred during the unban process. Check the logs for details.',
+    });
+  }
+}
 
 async function handleSyncCommand(interaction: ChatInputCommandInteraction) {
   // Check if user has ban permissions
