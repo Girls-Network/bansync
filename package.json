@@ -1,0 +1,21 @@
+{
+  "name": "bansync-bot",
+  "version": "1.0.0",
+  "description": "Discord bot that syncs bans across all servers",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "keywords": ["discord", "bot", "ban", "moderation"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@types/node": "^25.0.1",
+    "discord.js": "^14.25.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

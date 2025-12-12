@@ -1,0 +1,9 @@
+ervices:
+  bansync-bot:
+    build: .
+    container_name: bansync-bot
+    restart: unless-stopped
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+    volumes:
+      - ./logs:/app/logs
