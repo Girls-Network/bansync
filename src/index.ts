@@ -8,7 +8,8 @@ import {
   REST,
   Routes,
   ChatInputCommandInteraction,
-  PermissionFlagsBits
+  PermissionFlagsBits,
+  TextChannel
 } from 'discord.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -30,6 +31,7 @@ if (!TOKEN) {
 interface ServerConfig {
   id: string;
   name: string;
+  logChannelId: string | null;
 }
 
 interface ServersConfig {
@@ -89,9 +91,50 @@ try {
 }
 
 // Create a map for quick lookup
-const serverMap = new Map<string, string>(
-  serversConfig.servers.map(s => [s.id, s.name])
+const serverMap = new Map<string, ServerConfig>(
+  serversConfig.servers.map(s => [s.id, s])
 );
+
+// Helper function to send logs to configured logging channels
+async function sendLog(serverId: string, embed: EmbedBuilder) {
+  const serverConfig = serverMap.get(serverId);
+  if (!serverConfig || !serverConfig.logChannelId) {
+    return; // No logging channel configured
+  }
+
+  const guild = client.guilds.cache.get(serverId);
+  if (!guild) {
+    return;
+  }
+
+  try {
+    const logChannel = await guild.channels.fetch(serverConfig.logChannelId);
+    
+    if (!logChannel || !logChannel.isTextBased()) {
+      console.log(`⚠️  Log channel not found or not text-based in ${serverConfig.name}`);
+      return;
+    }
+
+    const textChannel = logChannel as TextChannel;
+    
+    // Check if bot has permission to send messages
+    if (!textChannel.permissionsFor(client.user!)?.has('SendMessages')) {
+      console.log(`⚠️  No permission to send messages in log channel for ${serverConfig.name}`);
+      return;
+    }
+
+    await textChannel.send({ embeds: [embed] });
+  } catch (error) {
+    console.error(`❌ Failed to send log to ${serverConfig.name}:`, error);
+  }
+}
+
+// Helper function to send logs to all configured servers
+async function sendLogToAll(embed: EmbedBuilder) {
+  for (const server of serversConfig.servers) {
+    await sendLog(server.id, embed);
+  }
+}
 
 // Define slash commands
 const commands = [
@@ -144,8 +187,9 @@ client.once('ready', async () => {
   
   for (const server of serversConfig.servers) {
     const guild = client.guilds.cache.get(server.id);
+    const logStatus = server.logChannelId ? `📝 Log: ${server.logChannelId}` : '⚠️  No log channel';
     if (guild) {
-      console.log(`  ✔️  ${server.name} (${server.id})`);
+      console.log(`  ✔️  ${server.name} (${server.id}) - ${logStatus}`);
     } else {
       console.log(`  ❌ ${server.name} (${server.id}) - Bot not in this server!`);
     }
@@ -272,6 +316,7 @@ async function handleUnbanCommand(interaction: ChatInputCommandInteraction) {
       .addFields(
         { name: 'User ID', value: `<@${userId}> (\`${userId}\`)`, inline: false },
         { name: 'Reason', value: reason, inline: false },
+        { name: 'Requested By', value: `${interaction.user.tag} (<@${interaction.user.id}>)`, inline: false },
         { name: 'Results', value: resultText || 'None', inline: false },
         {
           name: 'Summary',
@@ -286,6 +331,9 @@ async function handleUnbanCommand(interaction: ChatInputCommandInteraction) {
     await interaction.editReply({
       embeds: [embed],
     });
+    
+    // Send log to all configured logging channels
+    await sendLogToAll(embed);
     
     console.log(`\n✅ Unban complete:`);
     console.log(`   Unbanned: ${unbannedCount}`);
@@ -402,7 +450,8 @@ async function handleSyncCommand(interaction: ChatInputCommandInteraction) {
       .addFields(
         { name: '✅ New Bans Applied', value: stats.newBans.toString(), inline: true },
         { name: '🔄 Already Banned', value: stats.alreadyBanned.toString(), inline: true },
-        { name: '❌ Errors', value: stats.errors.toString(), inline: true }
+        { name: '❌ Errors', value: stats.errors.toString(), inline: true },
+        { name: 'Requested By', value: `${interaction.user.tag} (<@${interaction.user.id}>)`, inline: false }
       )
       .setColor(stats.errors > 0 ? Colors.Orange : Colors.Green)
       .setTimestamp()
@@ -412,6 +461,9 @@ async function handleSyncCommand(interaction: ChatInputCommandInteraction) {
       content: null,
       embeds: [embed],
     });
+    
+    // Send log to all configured logging channels
+    await sendLogToAll(embed);
     
     console.log(`\n✅ Sync complete:`);
     console.log(`   Total bans: ${stats.totalBans}`);
@@ -505,7 +557,7 @@ client.on('guildBanAdd', async (ban) => {
     return;
   }
 
-  const sourceServerName = serverMap.get(sourceGuild.id)!;
+  const sourceServer = serverMap.get(sourceGuild.id)!;
   
   // Fetch the ban to get the reason
   let banReason = 'No reason provided';
@@ -522,7 +574,7 @@ client.on('guildBanAdd', async (ban) => {
     return;
   }
   
-  console.log(`\n🔨 Ban detected: ${bannedUser.tag} (${bannedUser.id}) in ${sourceServerName}`);
+  console.log(`\n🔨 Ban detected: ${bannedUser.tag} (${bannedUser.id}) in ${sourceServer.name}`);
   console.log(`   Reason: ${banReason}`);
 
   const results: BanResult[] = [];
@@ -569,7 +621,7 @@ client.on('guildBanAdd', async (ban) => {
       }
 
       // Ban the user with [BanSync] prefix
-      const syncReason = `[BanSync] Banned in ${sourceServerName} | Reason: ${banReason}`;
+      const syncReason = `[BanSync] Banned in ${sourceServer.name} | Reason: ${banReason}`;
       await guild.members.ban(bannedUser.id, {
         reason: syncReason,
       });
@@ -603,56 +655,48 @@ client.on('guildBanAdd', async (ban) => {
     console.log(`  ${result.serverName}: ${emoji}${status}`);
   }
 
-  // Try to send a message to the source guild's system channel
-  await sendBanReport(sourceGuild, bannedUser, results, banReason);
+  // Send ban report to all logging channels
+  await sendBanReportToAll(sourceServer.name, bannedUser, results, banReason);
 });
 
-async function sendBanReport(
-  sourceGuild: Guild,
+async function sendBanReportToAll(
+  sourceServerName: string,
   bannedUser: { tag: string; id: string },
   results: BanResult[],
   banReason: string
 ) {
-  try {
-    const systemChannel = sourceGuild.systemChannel;
-    
-    if (!systemChannel || !systemChannel.permissionsFor(client.user!)?.has('SendMessages')) {
-      return; // No system channel or no permission
-    }
+  const successCount = results.filter(r => r.success && !r.alreadyBanned).length;
+  const failureCount = results.filter(r => !r.success).length;
+  const alreadyBannedCount = results.filter(r => r.alreadyBanned).length;
 
-    const successCount = results.filter(r => r.success && !r.alreadyBanned).length;
-    const failureCount = results.filter(r => !r.success).length;
-    const alreadyBannedCount = results.filter(r => r.alreadyBanned).length;
+  // Format results
+  const resultText = results
+    .map(r => {
+      const emoji = r.success ? '✔️' : '❌';
+      const status = r.alreadyBanned ? ' (already banned)' : r.error ? ` (${r.error})` : '';
+      return `${r.serverName}: ${emoji}${status}`;
+    })
+    .join('\n');
 
-    // Format results
-    const resultText = results
-      .map(r => {
-        const emoji = r.success ? '✔️' : '❌';
-        const status = r.alreadyBanned ? ' (already banned)' : r.error ? ` (${r.error})` : '';
-        return `${r.serverName}: ${emoji}${status}`;
-      })
-      .join('\n');
+  const embed = new EmbedBuilder()
+    .setTitle('🔨 Ban Sync Report')
+    .setDescription(`User **${bannedUser.tag}** has been banned across servers.`)
+    .addFields(
+      { name: 'User', value: `<@${bannedUser.id}> (\`${bannedUser.id}\`)`, inline: false },
+      { name: 'Banned In', value: sourceServerName, inline: false },
+      { name: 'Reason', value: banReason, inline: false },
+      { name: 'Servers', value: resultText || 'None', inline: false },
+      {
+        name: 'Summary',
+        value: `✅ Synced: ${successCount}\n❌ Failed: ${failureCount}\n🔄 Already banned: ${alreadyBannedCount}`,
+        inline: false,
+      }
+    )
+    .setColor(Colors.Red)
+    .setTimestamp();
 
-    const embed = new EmbedBuilder()
-      .setTitle('🔨 Ban Sync Report')
-      .setDescription(`User **${bannedUser.tag}** has been banned across servers.`)
-      .addFields(
-        { name: 'User', value: `<@${bannedUser.id}> (\`${bannedUser.id}\`)`, inline: false },
-        { name: 'Reason', value: banReason, inline: false },
-        { name: 'Servers', value: resultText || 'None', inline: false },
-        {
-          name: 'Summary',
-          value: `✅ Banned: ${successCount}\n❌ Not in server: ${failureCount}\n🔄 Already banned: ${alreadyBannedCount}`,
-          inline: false,
-        }
-      )
-      .setColor(Colors.Red)
-      .setTimestamp();
-
-    await systemChannel.send({ embeds: [embed] });
-  } catch (error) {
-    console.error('Failed to send ban report:', error);
-  }
+  // Send to all configured logging channels
+  await sendLogToAll(embed);
 }
 
 // Error handling

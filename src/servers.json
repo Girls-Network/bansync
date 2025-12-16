@@ -2,23 +2,28 @@
   "servers": [
     {
       "id": "1231247596459130974",
-      "name": "Main Server"
+      "name": "Main Server",
+      "logChannelId": "1410404829192523776"
     },
     {
       "id": "1447973293675253844",
-      "name": "Lifesteal"
+      "name": "Lifesteal",
+      "logChannelId": "1448267784185188455"
     },
     {
       "id": "1440865787954073733",
-      "name": "Chess"
+      "name": "Chess",
+      "logChannelId": null
     },
     {
       "id": "1372883447420289070",
-      "name": "DND"
+      "name": "DND",
+      "logChannelId": null
     },
     {
       "id": "1441223877970890765",
-      "name": "Photography"
+      "name": "Photography",
+      "logChannelId": null
     }
   ]
 }
