@@ -28,6 +28,55 @@ if (!TOKEN) {
   process.exit(1);
 }
 
+// Track bans currently being processed to prevent loops
+// Format: "userId-guildId" -> timestamp
+const processingBans = new Map<string, number>();
+const BAN_PROCESSING_TIMEOUT = 30000; // 30 seconds
+const BAN_DELAY_MS = 1000; // 1 second delay between bans to different servers
+
+// Helper to create a unique key for a ban
+function getBanKey(userId: string, guildId: string): string {
+  return `${userId}-${guildId}`;
+}
+
+// Helper to check if a ban is currently being processed
+function isBanProcessing(userId: string, guildId: string): boolean {
+  const key = getBanKey(userId, guildId);
+  const timestamp = processingBans.get(key);
+  
+  if (!timestamp) return false;
+  
+  // Check if the processing has timed out
+  if (Date.now() - timestamp > BAN_PROCESSING_TIMEOUT) {
+    processingBans.delete(key);
+    return false;
+  }
+  
+  return true;
+}
+
+// Helper to mark a ban as being processed
+function markBanProcessing(userId: string, guildId: string): void {
+  const key = getBanKey(userId, guildId);
+  processingBans.set(key, Date.now());
+}
+
+// Helper to unmark a ban as being processed
+function unmarkBanProcessing(userId: string, guildId: string): void {
+  const key = getBanKey(userId, guildId);
+  processingBans.delete(key);
+}
+
+// Cleanup old processing entries every minute
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, timestamp] of processingBans.entries()) {
+    if (now - timestamp > BAN_PROCESSING_TIMEOUT) {
+      processingBans.delete(key);
+    }
+  }
+}, 60000);
+
 interface ServerConfig {
   id: string;
   name: string;
@@ -460,6 +509,9 @@ async function handleSyncCommand(interaction: ChatInputCommandInteraction) {
           content: `🔄 Syncing bans: ${processedCount}/${allBans.size} processed...`,
         });
       }
+      
+      // Add delay between processing different users to prevent rate limiting
+      await new Promise(resolve => setTimeout(resolve, BAN_DELAY_MS));
     }
     
     // Create summary embed
@@ -549,6 +601,21 @@ async function syncBanToAllServers(banInfo: {
         continue;
       }
       
+      // Check if this ban is currently being processed to prevent loops
+      if (isBanProcessing(banInfo.userId, guild.id)) {
+        results.push({
+          serverId: configServer.id,
+          serverName: configServer.name,
+          success: true,
+          alreadyBanned: true, // Treat as already handled
+        });
+        console.log(`  ⏭️  Skipping ${configServer.name} (already processing)`);
+        continue;
+      }
+      
+      // Mark as processing
+      markBanProcessing(banInfo.userId, guild.id);
+      
       // Ban the user
       const syncReason = `[BanSync] Originally banned in ${banInfo.sourceServerName} | Reason: ${banInfo.reason}`;
       await guild.members.ban(banInfo.userId, {
@@ -565,6 +632,9 @@ async function syncBanToAllServers(banInfo: {
       
       console.log(`  ✅ Banned ${banInfo.userTag} in ${configServer.name}`);
       
+      // Add delay between bans to prevent rate limiting and allow events to process
+      await new Promise(resolve => setTimeout(resolve, BAN_DELAY_MS));
+      
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       results.push({
@@ -574,6 +644,9 @@ async function syncBanToAllServers(banInfo: {
         alreadyBanned: false,
         error: errorMessage,
       });
+      
+      // Unmark if failed
+      unmarkBanProcessing(banInfo.userId, guild.id);
     }
   }
   
@@ -592,6 +665,12 @@ client.on('guildBanAdd', async (ban) => {
 
   const sourceServer = serverMap.get(sourceGuild.id)!;
   
+  // Check if this ban is currently being processed (to prevent loops)
+  if (isBanProcessing(bannedUser.id, sourceGuild.id)) {
+    console.log(`⚠️  Skipping BanSync ban to prevent loop: ${bannedUser.tag} in ${sourceServer.name}`);
+    return;
+  }
+  
   // Fetch the ban to get the reason
   let banReason = 'No reason provided';
   try {
@@ -601,7 +680,7 @@ client.on('guildBanAdd', async (ban) => {
     console.log(`⚠️  Could not fetch ban reason: ${error}`);
   }
   
-  // Skip if this is a BanSync ban to prevent loops
+  // Skip if this is a BanSync ban to prevent loops (secondary check)
   if (banReason.startsWith('[BanSync]')) {
     console.log(`⚠️  Skipping BanSync ban to prevent loop: ${bannedUser.tag}`);
     return;
@@ -667,6 +746,21 @@ client.on('guildBanAdd', async (ban) => {
         continue;
       }
 
+      // Check if this ban is currently being processed to prevent loops
+      if (isBanProcessing(bannedUser.id, guild.id)) {
+        results.push({
+          serverId: configServer.id,
+          serverName: configServer.name,
+          success: true,
+          alreadyBanned: true, // Treat as already handled
+        });
+        console.log(`  ⏭️  Skipping ${configServer.name} (already processing)`);
+        continue;
+      }
+
+      // Mark as processing before banning
+      markBanProcessing(bannedUser.id, guild.id);
+
       // Ban the user with [BanSync] prefix
       const syncReason = `[BanSync] Banned in ${sourceServer.name} | Reason: ${banReason}`;
       await guild.members.ban(bannedUser.id, {
@@ -681,6 +775,10 @@ client.on('guildBanAdd', async (ban) => {
       });
 
       console.log(`  ✅ Banned in ${configServer.name}`);
+      
+      // Add delay between bans to prevent rate limiting and allow events to process
+      await new Promise(resolve => setTimeout(resolve, BAN_DELAY_MS));
+      
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       results.push({
@@ -691,15 +789,32 @@ client.on('guildBanAdd', async (ban) => {
         error: errorMessage,
       });
       console.log(`  ❌ Failed to ban in ${configServer.name}: ${errorMessage}`);
+      
+      // Unmark if failed
+      unmarkBanProcessing(bannedUser.id, guild.id);
     }
   }
 
   // Create formatted output
   console.log(`\n📋 Ban Sync Results for ${bannedUser.tag}:`);
-  for (const result of results) {
-    const emoji = result.success ? '✔️' : '❌';
-    const status = result.alreadyBanned ? ' (already banned)' : '';
-    console.log(`  ${result.serverName}: ${emoji}${status}`);
+  
+  const successCount = results.filter(r => r.success && !r.alreadyBanned).length;
+  const failureCount = results.filter(r => !r.success).length;
+  const alreadyBannedCount = results.filter(r => r.alreadyBanned).length;
+  
+  if (failureCount === 0) {
+    // Simplified output when everything succeeded
+    console.log(`  ✅ Synced to ${successCount} server${successCount !== 1 ? 's' : ''}`);
+    if (alreadyBannedCount > 0) {
+      console.log(`  🔄 Already banned in ${alreadyBannedCount} server${alreadyBannedCount !== 1 ? 's' : ''}`);
+    }
+  } else {
+    // Detailed output when there were failures
+    for (const result of results) {
+      const emoji = result.success ? '✔️' : '❌';
+      const status = result.alreadyBanned ? ' (already banned)' : result.error ? ` (${result.error})` : '';
+      console.log(`  ${result.serverName}: ${emoji}${status}`);
+    }
   }
 
   // Send ban report to all logging channels
@@ -716,31 +831,47 @@ async function sendBanReportToAll(
   const failureCount = results.filter(r => !r.success).length;
   const alreadyBannedCount = results.filter(r => r.alreadyBanned).length;
 
-  // Format results
-  const resultText = results
-    .map(r => {
-      const emoji = r.success ? '✔️' : '❌';
-      const status = r.alreadyBanned ? ' (already banned)' : r.error ? ` (${r.error})` : '';
-      return `${r.serverName}: ${emoji}${status}`;
-    })
-    .join('\n');
-
   const embed = new EmbedBuilder()
     .setTitle('🔨 Ban Sync Report')
-    .setDescription(`User **${bannedUser.tag}** has been banned across servers.`)
-    .addFields(
-      { name: 'User', value: `<@${bannedUser.id}> (\`${bannedUser.id}\`)`, inline: false },
-      { name: 'Banned In', value: sourceServerName, inline: false },
-      { name: 'Reason', value: banReason, inline: false },
-      { name: 'Servers', value: resultText || 'None', inline: false },
-      {
-        name: 'Summary',
-        value: `✅ Synced: ${successCount}\n❌ Failed: ${failureCount}\n🔄 Already banned: ${alreadyBannedCount}`,
-        inline: false,
-      }
-    )
     .setColor(Colors.Red)
     .setTimestamp();
+
+  // If all servers succeeded (no failures), show simplified message
+  if (failureCount === 0) {
+    embed.setDescription(`User **${bannedUser.tag}** has been banned across all servers.`)
+      .addFields(
+        { name: 'User', value: `<@${bannedUser.id}> (\`${bannedUser.id}\`)`, inline: false },
+        { name: 'Banned In', value: sourceServerName, inline: false },
+        { name: 'Reason', value: banReason, inline: false },
+        {
+          name: 'Summary',
+          value: `✅ Synced to ${successCount} server${successCount !== 1 ? 's' : ''}\n🔄 Already banned in ${alreadyBannedCount} server${alreadyBannedCount !== 1 ? 's' : ''}`,
+          inline: false,
+        }
+      );
+  } else {
+    // Show detailed results if there were any failures
+    const resultText = results
+      .map(r => {
+        const emoji = r.success ? '✔️' : '❌';
+        const status = r.alreadyBanned ? ' (already banned)' : r.error ? ` (${r.error})` : '';
+        return `${r.serverName}: ${emoji}${status}`;
+      })
+      .join('\n');
+
+    embed.setDescription(`User **${bannedUser.tag}** ban sync completed with some issues.`)
+      .addFields(
+        { name: 'User', value: `<@${bannedUser.id}> (\`${bannedUser.id}\`)`, inline: false },
+        { name: 'Banned In', value: sourceServerName, inline: false },
+        { name: 'Reason', value: banReason, inline: false },
+        { name: 'Servers', value: resultText || 'None', inline: false },
+        {
+          name: 'Summary',
+          value: `✅ Synced: ${successCount}\n❌ Failed: ${failureCount}\n🔄 Already banned: ${alreadyBannedCount}`,
+          inline: false,
+        }
+      );
+  }
 
   // Send to all configured logging channels
   await sendLogToAll(embed);
