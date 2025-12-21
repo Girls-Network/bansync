@@ -32,12 +32,29 @@ if (!TOKEN) {
 // Track bans currently being processed to prevent loops
 // Format: "userId-guildId" -> timestamp
 const processingBans = new Map<string, number>();
-const BAN_PROCESSING_TIMEOUT = 30000; // 30 seconds
+// Track users being synced globally to prevent ANY processing during sync
+const syncingUsers = new Set<string>();
+const BAN_PROCESSING_TIMEOUT = 60000; // 60 seconds - increased to handle slower syncs
 const BAN_DELAY_MS = 2000; // 2 second delay between bans to different servers
 
 // Helper to create a unique key for a ban
 function getBanKey(userId: string, guildId: string): string {
   return `${userId}-${guildId}`;
+}
+
+// Helper to check if a user is currently being synced globally
+function isUserSyncing(userId: string): boolean {
+  return syncingUsers.has(userId);
+}
+
+// Helper to mark a user as syncing globally
+function markUserSyncing(userId: string): void {
+  syncingUsers.add(userId);
+}
+
+// Helper to unmark a user as syncing globally
+function unmarkUserSyncing(userId: string): void {
+  syncingUsers.delete(userId);
 }
 
 // Helper to check if a ban is currently being processed
@@ -271,13 +288,14 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 async function handlePingCommand(interaction: ChatInputCommandInteraction) {
-  const sent = await interaction.reply({
+  const timestamp = Date.now();
+  
+  await interaction.reply({
     content: 'Pinging...',
     flags: MessageFlags.Ephemeral,
-    fetchReply: true,
   });
   
-  const roundtrip = sent.createdTimestamp - interaction.createdTimestamp;
+  const roundtrip = Date.now() - timestamp;
   const wsLatency = client.ws.ping;
   
   await interaction.editReply({
@@ -686,7 +704,13 @@ client.on('guildBanAdd', async (ban) => {
 
   const sourceServer = serverMap.get(sourceGuild.id)!;
   
-  // Check if this ban is currently being processed (to prevent loops)
+  // FIRST: Check if this user is currently being synced globally (most aggressive check)
+  if (isUserSyncing(bannedUser.id)) {
+    console.log(`⚠️  Skipping ban - user ${bannedUser.tag} is currently being synced`);
+    return;
+  }
+  
+  // SECOND: Check if this specific ban is currently being processed (to prevent loops)
   if (isBanProcessing(bannedUser.id, sourceGuild.id)) {
     console.log(`⚠️  Skipping BanSync ban to prevent loop: ${bannedUser.tag} in ${sourceServer.name}`);
     return;
@@ -701,7 +725,7 @@ client.on('guildBanAdd', async (ban) => {
     console.log(`⚠️  Could not fetch ban reason: ${error}`);
   }
   
-  // Skip if this is a BanSync ban to prevent loops (secondary check)
+  // THIRD: Skip if this is a BanSync ban to prevent loops (fallback check)
   if (banReason.startsWith('[BanSync]')) {
     console.log(`⚠️  Skipping BanSync ban to prevent loop: ${bannedUser.tag}`);
     return;
@@ -709,6 +733,9 @@ client.on('guildBanAdd', async (ban) => {
   
   console.log(`\n🔨 Ban detected: ${bannedUser.tag} (${bannedUser.id}) in ${sourceServer.name}`);
   console.log(`   Reason: ${banReason}`);
+
+  // Mark this user as syncing globally to block all other processing
+  markUserSyncing(bannedUser.id);
 
   // Mark ALL servers as processing BEFORE we start banning to prevent race conditions
   for (const configServer of serversConfig.servers) {
@@ -804,6 +831,9 @@ client.on('guildBanAdd', async (ban) => {
       console.log(`  ❌ Failed to ban in ${configServer.name}: ${errorMessage}`);
     }
   }
+
+  // Unmark user as syncing globally now that we're done
+  unmarkUserSyncing(bannedUser.id);
 
   // Create formatted output
   console.log(`\n📋 Ban Sync Results for ${bannedUser.tag}:`);
