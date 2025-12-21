@@ -9,7 +9,8 @@ import {
   Routes,
   ChatInputCommandInteraction,
   PermissionFlagsBits,
-  TextChannel
+  TextChannel,
+  MessageFlags
 } from 'discord.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -32,7 +33,7 @@ if (!TOKEN) {
 // Format: "userId-guildId" -> timestamp
 const processingBans = new Map<string, number>();
 const BAN_PROCESSING_TIMEOUT = 30000; // 30 seconds
-const BAN_DELAY_MS = 1000; // 1 second delay between bans to different servers
+const BAN_DELAY_MS = 2000; // 2 second delay between bans to different servers
 
 // Helper to create a unique key for a ban
 function getBanKey(userId: string, guildId: string): string {
@@ -188,6 +189,9 @@ async function sendLogToAll(embed: EmbedBuilder) {
 // Define slash commands
 const commands = [
   new SlashCommandBuilder()
+    .setName('ping')
+    .setDescription('Check bot latency and response time'),
+  new SlashCommandBuilder()
     .setName('sync')
     .setDescription('Sync all bans across configured servers')
     .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
@@ -257,19 +261,36 @@ client.once('clientReady', async () => {
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   
-  if (interaction.commandName === 'sync') {
+  if (interaction.commandName === 'ping') {
+    await handlePingCommand(interaction);
+  } else if (interaction.commandName === 'sync') {
     await handleSyncCommand(interaction);
   } else if (interaction.commandName === 'unban') {
     await handleUnbanCommand(interaction);
   }
 });
 
+async function handlePingCommand(interaction: ChatInputCommandInteraction) {
+  const sent = await interaction.reply({
+    content: 'Pinging...',
+    flags: MessageFlags.Ephemeral,
+    fetchReply: true,
+  });
+  
+  const roundtrip = sent.createdTimestamp - interaction.createdTimestamp;
+  const wsLatency = client.ws.ping;
+  
+  await interaction.editReply({
+    content: `🏓 Pong!\n**Roundtrip:** ${roundtrip}ms\n**WebSocket:** ${wsLatency}ms`,
+  });
+}
+
 async function handleUnbanCommand(interaction: ChatInputCommandInteraction) {
   // Check if user has ban permissions
   if (!interaction.memberPermissions?.has(PermissionFlagsBits.BanMembers)) {
     await interaction.reply({
       content: '❌ You need Ban Members permission to use this command.',
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
@@ -281,7 +302,7 @@ async function handleUnbanCommand(interaction: ChatInputCommandInteraction) {
   if (!/^\d{17,19}$/.test(userId)) {
     await interaction.reply({
       content: '❌ Invalid user ID format. Please provide a valid Discord user ID.',
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
@@ -421,7 +442,7 @@ async function handleSyncCommand(interaction: ChatInputCommandInteraction) {
   if (!interaction.memberPermissions?.has(PermissionFlagsBits.BanMembers)) {
     await interaction.reply({
       content: '❌ You need Ban Members permission to use this command.',
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
@@ -689,6 +710,13 @@ client.on('guildBanAdd', async (ban) => {
   console.log(`\n🔨 Ban detected: ${bannedUser.tag} (${bannedUser.id}) in ${sourceServer.name}`);
   console.log(`   Reason: ${banReason}`);
 
+  // Mark ALL servers as processing BEFORE we start banning to prevent race conditions
+  for (const configServer of serversConfig.servers) {
+    if (configServer.id !== sourceGuild.id) {
+      markBanProcessing(bannedUser.id, configServer.id);
+    }
+  }
+
   const results: BanResult[] = [];
 
   // Process all configured servers
@@ -746,21 +774,6 @@ client.on('guildBanAdd', async (ban) => {
         continue;
       }
 
-      // Check if this ban is currently being processed to prevent loops
-      if (isBanProcessing(bannedUser.id, guild.id)) {
-        results.push({
-          serverId: configServer.id,
-          serverName: configServer.name,
-          success: true,
-          alreadyBanned: true, // Treat as already handled
-        });
-        console.log(`  ⏭️  Skipping ${configServer.name} (already processing)`);
-        continue;
-      }
-
-      // Mark as processing before banning
-      markBanProcessing(bannedUser.id, guild.id);
-
       // Ban the user with [BanSync] prefix
       const syncReason = `[BanSync] Banned in ${sourceServer.name} | Reason: ${banReason}`;
       await guild.members.ban(bannedUser.id, {
@@ -789,9 +802,6 @@ client.on('guildBanAdd', async (ban) => {
         error: errorMessage,
       });
       console.log(`  ❌ Failed to ban in ${configServer.name}: ${errorMessage}`);
-      
-      // Unmark if failed
-      unmarkBanProcessing(bannedUser.id, guild.id);
     }
   }
 
