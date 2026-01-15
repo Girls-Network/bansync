@@ -22,11 +22,13 @@
     },
     {
       "id": "1199146782333075467",
-      "name": "The Duck Pond"
+      "name": "The Duck Pond",
+      "logChannelId": null
     },
     {
       "id": "1461140960854409503",
-      "name": "Clove Personal"
+      "name": "Clove Personal",
+      "logChannelId": "1461140962070888449"
     }
   ]
 }
