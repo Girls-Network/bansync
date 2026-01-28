@@ -22,7 +22,7 @@ const client = new Client({
   ],
 });
 
-const TOKEN = process.env.DISCORD_TOKEN;
+const TOKEN = process.env.BANSYNC_TOKEN;
 
 if (!TOKEN) {
   console.error('Error: DISCORD_TOKEN environment variable is not set!');
