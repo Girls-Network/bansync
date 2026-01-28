@@ -6,7 +6,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm install
+RUN npm install && npm install -g @dotenvx/dotenvx
 
 # Copy source code
 COPY . .
@@ -15,4 +15,4 @@ COPY . .
 RUN npm run build
 
 # Run the bot
-CMD ["npm", "start"]
+CMD ["dotenvx", "run", "--", "npm", "start"]
