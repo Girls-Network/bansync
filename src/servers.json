@@ -6,11 +6,6 @@
       "logChannelId": "1410404829192523776"
     },
     {
-      "id": "1447973293675253844",
-      "name": "Lifesteal",
-      "logChannelId": "1448267784185188455"
-    },
-    {
       "id": "1440865787954073733",
       "name": "Chess",
       "logChannelId": null
@@ -26,9 +21,9 @@
       "logChannelId": null
     },
     {
-      "id": "1461140960854409503",
-      "name": "Clove Personal",
-      "logChannelId": "1461140962070888449"
+      "id": "1468564166267637823",
+      "name": "Doughmination System",
+      "logChannelId": "1468565478422089865"
     }
   ]
 }
