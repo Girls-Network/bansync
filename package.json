@@ -1,27 +1,37 @@
 {
-  "name": "bansync-bot",
-  "version": "1.0.0",
-  "description": "Discord bot that syncs bans across all servers",
-  "main": "dist/index.js",
-  "type": "module",
-  "scripts": {
-    "dev": "tsx src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js"
-  },
-  "keywords": [
-    "discord",
-    "bot",
-    "ban",
-    "moderation"
-  ],
-  "author": "CloveTwilight3",
-  "license": "MIT",
-  "dependencies": {
-    "@types/node": "^25.0.1",
-    "chalk": "^5.6.2",
-    "discord.js": "^14.25.1",
-    "tsx": "^4.21.0",
-    "typescript": "^6.0.2"
-  }
+    "name": "bansync-bot",
+    "version": "1.0.0",
+    "type": "module",
+    "main": "dist/index.js",
+    "description": "Discord bot that syncs bans across all servers",
+    "keywords": [
+        "discord",
+        "bot",
+        "ban",
+        "moderation"
+    ],
+    "author": "CloveTwilight3",
+    "license": "MIT",
+    "scripts": {
+        "build": "tsc",
+        "start": "tsx src/index.ts",
+        "dev": "nodemon --watch src --ext ts --exec \"npm run start\"",
+        "lint": "eslint \"src/**/*.ts\" \"*.{js,cjs,mjs}\" --fix",
+        "format": "prettier --write \"**/*.{ts,js,mjs,cjs,json,md}\"",
+        "prettylint": "npm run lint && npm run format",
+        "test": "tsc --noEmit"
+    },
+    "devDependencies": {
+        "@types/node": "^25.0.1",
+        "tsx": "^4.21.0",
+        "typescript": "^6.0.2",
+        "nodemon": "^3.1.11",
+        "prettier": "^3.8.3",
+        "eslint": "^10.2.1",
+        "typescript-eslint": "^8.20.0"
+    },
+    "dependencies": {
+        "chalk": "^5.6.2",
+        "discord.js": "^14.25.1"
+    }
 }

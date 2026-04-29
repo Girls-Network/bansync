@@ -1,24 +1,24 @@
 {
-  "servers": [
-    {
-      "id": "1231247596459130974",
-      "name": "Main Server",
-      "logChannelId": "1410404829192523776"
-    },
-    {
-      "id": "1497579971957358754",
-      "name": "GayBot Developement",
-      "logChannelId": "1497760489403318302"
-    },
-    {
-      "id": "1468564166267637823",
-      "name": "Doughmination System",
-      "logChannelId": "1468565478422089865"
-    },
-    {
-      "id": "1473081541637701925",
-      "name": "Safe Spawn",
-      "logChannelId": "1473323968139104316"
-    }
-  ]
+    "servers": [
+        {
+            "id": "1231247596459130974",
+            "name": "Main Server",
+            "logChannelId": "1410404829192523776"
+        },
+        {
+            "id": "1497579971957358754",
+            "name": "GayBot Developement",
+            "logChannelId": "1497760489403318302"
+        },
+        {
+            "id": "1468564166267637823",
+            "name": "Doughmination System",
+            "logChannelId": "1468565478422089865"
+        },
+        {
+            "id": "1473081541637701925",
+            "name": "Safe Spawn",
+            "logChannelId": "1473323968139104316"
+        }
+    ]
 }

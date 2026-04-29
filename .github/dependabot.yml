@@ -1,63 +1,58 @@
-
 version: 2
 updates:
-  # Enable version updates for npm
+  # ─── npm (Node dependencies) ────────────────────────────────────────────────
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "daily"
       time: "09:00"
       timezone: "UTC"
-    open-pull-requests-limit: 5
-    reviewers:
-      - "CloveTwilight3"
+    open-pull-requests-limit: 2
     assignees:
       - "AriasADev"
-      - "CloveTwilight3"
+      - "EstrogenHRT"
     commit-message:
       prefix: "npm"
       include: "scope"
     labels:
       - "dependencies"
       - "npm"
-    # Automatically group minor and patch updates
+    # Group related minor/patch bumps into single PRs to cut noise.
     groups:
-      development-dependencies:
-        dependency-type: "development"
-        update-types:
-          - "minor"
-          - "patch"
-      production-dependencies:
-        dependency-type: "production"
-        update-types:
-          - "minor"
-          - "patch"
-    # Keep pull requests up to date with base branch
-    rebase-strategy: "auto"
-    
-  # Enable version updates for Docker
+      types:
+        patterns:
+          - "@types/*"
+      eslint:
+        patterns:
+          - "eslint"
+          - "eslint-*"
+          - "@typescript-eslint/*"
+          - "typescript-eslint"
+      prettier:
+        patterns:
+          - "prettier"
+          - "prettier-*"
+
+  # ─── Docker base images ─────────────────────────────────────────────────────
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "daily"
       time: "09:00"
       timezone: "UTC"
-    open-pull-requests-limit: 2
-    reviewers:
-      - "CloveTwilight3"
+    open-pull-requests-limit: 1
     assignees:
       - "AriasADev"
-      - "CloveTwilight3"
+      - "EstrogenHRT"
     commit-message:
       prefix: "docker"
     labels:
       - "dependencies"
       - "docker"
     rebase-strategy: "auto"
-    
-  # Enable version updates for GitHub Actions
+
+  # ─── GitHub Actions used by .github/workflows/*.yml ─────────────────────────
+  # Keeps actions/checkout, actions/setup-node, etc. up to date.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -65,15 +60,18 @@ updates:
       day: "monday"
       time: "09:00"
       timezone: "UTC"
-    open-pull-requests-limit: 2
-    reviewers:
-      - "CloveTwilight3"
+    open-pull-requests-limit: 1
     assignees:
       - "AriasADev"
-      - "CloveTwilight3"
+      - "EstrogenHRT"
     commit-message:
       prefix: "ci"
+      include: "scope"
     labels:
       - "dependencies"
       - "github-actions"
-    rebase-strategy: "auto"
+    # Roll all action bumps into one weekly PR — they almost never conflict.
+    groups:
+      actions:
+        patterns:
+          - "*"
