@@ -1,0 +1,38 @@
+# EditorConfig — https://editorconfig.org
+# Top-level config; tells editors not to keep walking up the tree.
+root = true
+
+# ─── Defaults for everything ──────────────────────────────────────────────────
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# ─── TypeScript / JavaScript bot source ───────────────────────────────────────
+# Matches existing src/ formatting and tsconfig.json / package.json.
+[*.{ts,tsx,js,mjs,cjs,json,jsonc}]
+indent_size = 4
+
+# ─── ESLint flat config uses 2-space (community convention) ───────────────────
+[eslint.config.{js,cjs,mjs}]
+indent_size = 2
+
+# ─── YAML must use spaces, and 2-space is the spec convention ─────────────────
+[*.{yml,yaml}]
+indent_size = 2
+
+# ─── Markdown: keep trailing spaces (they mean "line break") ──────────────────
+[*.md]
+trim_trailing_whitespace = false
+indent_size = 4
+
+# ─── Makefiles require literal tabs ───────────────────────────────────────────
+[Makefile]
+indent_style = tab
+
+# ─── Shell scripts ────────────────────────────────────────────────────────────
+[*.sh]
+indent_size = 2
