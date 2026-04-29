@@ -218,6 +218,19 @@ const commands = [
     new SlashCommandBuilder()
         .setName("sync")
         .setDescription("Sync all bans across configured servers")
+        .addStringOption((option) =>
+            option
+                .setName("mode")
+                .setDescription("Sync mode: recovery or normal")
+                .setRequired(false)
+                .addChoices(
+                    {
+                        name: "Recovery (use largest ban list)",
+                        value: "RECOVERY",
+                    },
+                    { name: "Normal (merge bans)", value: "NORMAL" },
+                ),
+        )
         .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
         .setDMPermission(false),
     new SlashCommandBuilder()
@@ -539,7 +552,16 @@ async function handleSyncCommand(interaction: ChatInputCommandInteraction) {
             details: new Map(),
         };
 
-        // Collect all bans from all servers
+        // ===== MODE SYSTEM =====
+        // Modes:
+        // NORMAL = current behavior (merge bans, skip [BanSync])
+        // RECOVERY = pull ALL bans from the server with MOST bans (no filtering)
+
+        const selectedMode = interaction.options.getString("mode");
+        // Default to NORMAL if no option provided
+        const MODE: "NORMAL" | "RECOVERY" =
+            selectedMode === "RECOVERY" ? "RECOVERY" : "NORMAL"; // <-- CHANGE THIS WHEN NEEDED
+
         const allBans = new Map<
             string,
             {
@@ -551,40 +573,91 @@ async function handleSyncCommand(interaction: ChatInputCommandInteraction) {
             }
         >();
 
-        for (const configServer of serversConfig.servers) {
-            const guild = client.guilds.cache.get(configServer.id);
-            if (!guild) continue;
+        if (MODE === "RECOVERY") {
+            console.log("🛠️ Running in RECOVERY mode");
 
-            try {
-                const bans = await guild.bans.fetch();
-                console.log(
-                    `📋 Found ${bans.size} bans in ${configServer.name}`,
-                );
+            let bestGuild: any = null;
+            let maxBans = 0;
 
-                for (const [userId, ban] of bans) {
-                    // Skip bans that were already synced
-                    if (ban.reason?.startsWith("[BanSync]")) continue;
+            // Find server with MOST bans
+            for (const configServer of serversConfig.servers) {
+                const guild = client.guilds.cache.get(configServer.id);
+                if (!guild) continue;
 
-                    // Only add if we haven't seen this user yet, or if this ban has a better reason
-                    if (!allBans.has(userId) || !allBans.get(userId)!.reason) {
-                        allBans.set(userId, {
-                            userId: ban.user.id,
-                            userTag: ban.user.tag,
-                            sourceServerId: guild.id,
-                            sourceServerName: configServer.name,
-                            reason: ban.reason || "No reason provided",
-                        });
+                try {
+                    const bans = await guild.bans.fetch();
+                    console.log(`📋 ${configServer.name}: ${bans.size} bans`);
+
+                    if (bans.size > maxBans) {
+                        maxBans = bans.size;
+                        bestGuild = { guild, configServer, bans };
                     }
+                } catch (error) {
+                    console.error(
+                        `❌ Failed to fetch bans from ${configServer.name}:`,
+                        error,
+                    );
                 }
-            } catch (error) {
-                console.error(
-                    `❌ Failed to fetch bans from ${configServer.name}:`,
-                    error,
-                );
+            }
+
+            if (!bestGuild) {
+                throw new Error("No valid source server found");
+            }
+
+            console.log(`
+🏆 Using ${bestGuild.configServer.name} as source (${maxBans} bans)`);
+
+            for (const [userId, ban] of bestGuild.bans) {
+                allBans.set(userId, {
+                    userId: ban.user.id,
+                    userTag: ban.user.tag,
+                    sourceServerId: bestGuild.guild.id,
+                    sourceServerName: bestGuild.configServer.name,
+                    reason: ban.reason || "No reason provided",
+                });
+            }
+        } else {
+            console.log("🔄 Running in NORMAL mode");
+
+            // ORIGINAL LOGIC
+            for (const configServer of serversConfig.servers) {
+                const guild = client.guilds.cache.get(configServer.id);
+                if (!guild) continue;
+
+                try {
+                    const bans = await guild.bans.fetch();
+                    console.log(
+                        `📋 Found ${bans.size} bans in ${configServer.name}`,
+                    );
+
+                    for (const [userId, ban] of bans) {
+                        // Skip bans that were already synced
+                        if (ban.reason?.startsWith("[BanSync]")) continue;
+
+                        if (
+                            !allBans.has(userId) ||
+                            !allBans.get(userId)!.reason
+                        ) {
+                            allBans.set(userId, {
+                                userId: ban.user.id,
+                                userTag: ban.user.tag,
+                                sourceServerId: guild.id,
+                                sourceServerName: configServer.name,
+                                reason: ban.reason || "No reason provided",
+                            });
+                        }
+                    }
+                } catch (error) {
+                    console.error(
+                        `❌ Failed to fetch bans from ${configServer.name}:`,
+                        error,
+                    );
+                }
             }
         }
 
-        console.log(`\n📊 Total unique bans to sync: ${allBans.size}`);
+        console.log(`
+📊 Total bans to sync: ${allBans.size}`);
 
         if (allBans.size === 0) {
             await interaction.editReply({
@@ -593,15 +666,13 @@ async function handleSyncCommand(interaction: ChatInputCommandInteraction) {
             return;
         }
 
-        // Send initial progress message
+        // Send simple syncing message (no spam updates)
         await interaction.editReply({
-            content: `🔄 Syncing ${allBans.size} bans across ${serversConfig.servers.length} servers...\nThis may take a moment.`,
+            content: `🔄 Syncing... (${allBans.size} bans across ${serversConfig.servers.length} servers)`,
         });
 
         // Sync each ban to all servers
-        let processedCount = 0;
         for (const [userId, banInfo] of allBans) {
-            processedCount++;
             const results = await syncBanToAllServers(banInfo);
 
             stats.totalBans++;
@@ -615,13 +686,6 @@ async function handleSyncCommand(interaction: ChatInputCommandInteraction) {
                 } else if (!result.success && result.error) {
                     stats.errors++;
                 }
-            }
-
-            // Update progress every 5 bans
-            if (processedCount % 5 === 0) {
-                await interaction.editReply({
-                    content: `🔄 Syncing bans: ${processedCount}/${allBans.size} processed...`,
-                });
             }
 
             // Add delay between processing different users to prevent rate limiting
