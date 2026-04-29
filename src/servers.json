@@ -6,8 +6,13 @@
             "logChannelId": "1498850752871923856"
         },
         {
+            "id": "1498836715996188732",
+            "name": "Backup Server",
+            "logChannelId": null
+        },
+        {
             "id": "1497579971957358754",
-            "name": "GayBot Developement",
+            "name": "GayBot Development",
             "logChannelId": "1497760489403318302"
         },
         {
