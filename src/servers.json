@@ -6,11 +6,6 @@
             "logChannelId": "1498850752871923856"
         },
         {
-            "id": "1498836715996188732",
-            "name": "Backup Server",
-            "logChannelId": null
-        },
-        {
             "id": "1497579971957358754",
             "name": "GayBot Development",
             "logChannelId": "1497760489403318302"
@@ -21,9 +16,9 @@
             "logChannelId": "1468565478422089865"
         },
         {
-            "id": "1473081541637701925",
+            "id": "1500495135522296002",
             "name": "Safe Spawn",
-            "logChannelId": "1473323968139104316"
+            "logChannelId": "1500561678796849313"
         }
     ]
 }
