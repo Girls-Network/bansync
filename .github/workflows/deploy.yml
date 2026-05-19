@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: ghostwirebot/ghostwire
+  IMAGE_NAME: ghostwirebot/bansync
 
 jobs:
   deploy:
@@ -55,8 +55,8 @@ jobs:
             type=raw,value=${{ steps.src.outputs.sha }}
             type=raw,value=${{ steps.src.outputs.short }}
           labels: |
-            org.opencontainers.image.title=ghostwire
-            org.opencontainers.image.description=A utility bot for the Girls server
+            org.opencontainers.image.title=bansync
+            org.opencontainers.image.description=A simple banning sync bot for Girls
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ steps.src.outputs.sha }}
             org.opencontainers.image.licenses=MIT
