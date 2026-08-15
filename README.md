@@ -1,3 +1,6 @@
+> [!WARNING]
+> BanSync is now depreciated from Girls, and does NOT have any more security updates. You are welcome to make a fork and maintain it yourself, but the bot is now depreciated in favour of Ghostwire
+
 # BanSync Bot
 
 This repo is for Girls BanSync, a bot that sync bans over all servers of the Girls Network
